@@ -1,11 +1,12 @@
 
-name: Build Mihomo MRS
+name: Build custom_rules.mrs
 
 on:
   push:
     branches:
       - main
     paths:
+      - "custom_rules.list"
       - ".github/workflows/build-mrs.yml"
   workflow_dispatch:
   schedule:
@@ -23,13 +24,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download custom_rules.list
-        run: |
-          curl -fL --retry 3 \
-            "https://raw.githubusercontent.com/armin19900/sing-box-rules/refs/heads/main/reF1nd.json" \
-            -o custom_rules.list
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-          test -s custom_rules.list
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y curl jq git gzip
+
 
       - name: Download Mihomo
         shell: bash
@@ -37,21 +37,30 @@ jobs:
           set -euo pipefail
 
           API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
-          URL="$(curl -fsSL "$API" |
-            jq -r '.assets[]
-              | select(.name | test("^mihomo-linux-amd64-v[0-9]+\\.[0-9]+\\.[0-9]+\\.gz$"))
-              | .browser_download_url' |
-            head -n 1)"
+
+          curl -fsSL "$API" -o release.json
+
+          URL="$(jq -r '
+            [.assets[]
+              | select(.name | test("^mihomo-linux-amd64.*\\.gz$"))
+              | select(.name | contains("compatible") | not)
+              | .browser_download_url][0] // empty
+          ' release.json)"
 
           if [ -z "$URL" ]; then
-            echo "Cannot find Mihomo Linux amd64 release"
+            echo "没有找到 Mihomo Linux amd64 下载包"
+            jq -r '.assets[].name' release.json
             exit 1
           fi
 
+          echo "Downloading: $URL"
           curl -fL --retry 3 "$URL" -o mihomo.gz
+
+          gzip -t mihomo.gz
           gzip -df mihomo.gz
           chmod +x mihomo
           ./mihomo -v
+
 
       - name: Compile MRS
         run: |
